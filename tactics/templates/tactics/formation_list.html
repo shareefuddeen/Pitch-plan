@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Saved Formations - PitchPlan</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            font-family: sans-serif;
+            color: white;
+        }
+        h1 { text-align: center; }
+        .formation-item {
+            background: #0B1A2E;
+            padding: 15px;
+            margin: 10px auto;
+            max-width: 400px;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .formation-item a {
+            color: #00B4A0;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .back-link {
+            display: block;
+            text-align: center;
+            margin-top: 20px;
+            color: #00B4A0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Saved Formations</h1>
+    {% for formation in formations %}
+        <div class="formation-item">
+            <span>{{ formation.name }}</span>
+            <a href="/?load={{ formation.id }}">Load</a>
+        </div>
+    {% empty %}
+        <p style="text-align: center;">No formations saved yet.</p>
+    {% endfor %}
+    <a href="/" class="back-link">&larr; Back to pitch</a>
+</body>
+</html>

@@ -11,27 +11,41 @@
             background: #1a1a1a;
             font-family: sans-serif;
             display: flex;
-            justify-content: center;
+            flex-direction: column;
+            align-items: center;
         }
         .pitch-container {
             width: 100%;
             max-width: 700px;
         }
+        #player-count {
+            color: white;
+            text-align: center;
+            margin-top: 15px;
+            font-size: 16px;
+        }
+        #reset-btn {
+            display: block;
+            margin: 0 auto;
+            padding: 8px 20px;
+            font-size: 14px;
+            background: #00B4A0;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
     <div class="pitch-container">
-        <svg viewBox="0 0 700 1000" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: auto; background: #2e7d32; border: 3px solid white;">
+        <svg id="pitch-svg" viewBox="0 0 700 1000" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: auto; background: #2e7d32; border: 3px solid white;">
             <!-- Outer boundary -->
             <rect x="10" y="10" width="680" height="980" fill="none" stroke="white" stroke-width="3"/>
-
             <!-- Halfway line -->
             <line x1="10" y1="500" x2="690" y2="500" stroke="white" stroke-width="3"/>
-
             <!-- Center circle -->
             <circle cx="350" cy="500" r="80" fill="none" stroke="white" stroke-width="3"/>
             <circle cx="350" cy="500" r="4" fill="white"/>
-
             <!-- Top penalty box -->
             <rect x="175" y="10" width="350" height="150" fill="none" stroke="white" stroke-width="3"/>
             <!-- Top 6-yard box -->
@@ -40,7 +54,6 @@
             <circle cx="350" cy="120" r="4" fill="white"/>
             <!-- Top penalty arc -->
             <path d="M 275 160 A 80 80 0 0 0 425 160" fill="none" stroke="white" stroke-width="3"/>
-
             <!-- Bottom penalty box -->
             <rect x="175" y="840" width="350" height="150" fill="none" stroke="white" stroke-width="3"/>
             <!-- Bottom 6-yard box -->
@@ -49,13 +62,219 @@
             <circle cx="350" cy="880" r="4" fill="white"/>
             <!-- Bottom penalty arc -->
             <path d="M 275 840 A 80 80 0 0 1 425 840" fill="none" stroke="white" stroke-width="3"/>
-
             <!-- Corner arcs -->
             <path d="M 10 30 A 20 20 0 0 0 30 10" fill="none" stroke="white" stroke-width="3"/>
             <path d="M 670 10 A 20 20 0 0 0 690 30" fill="none" stroke="white" stroke-width="3"/>
             <path d="M 10 970 A 20 20 0 0 1 30 990" fill="none" stroke="white" stroke-width="3"/>
             <path d="M 690 970 A 20 20 0 0 1 670 990" fill="none" stroke="white" stroke-width="3"/>
+
+            <!-- Player markers get added here dynamically -->
+            <g id="players-layer"></g>
         </svg>
+
+        <p id="player-count">Players placed: 0 / 11</p>
+        <button id="reset-btn">Reset</button>
+      <div style="text-align: center; margin-top: 15px;">
+    <input type="text" id="formation-name" placeholder="Formation name" style="padding: 8px; font-size: 14px; border-radius: 4px; border: none; width: 200px;">
+    <button id="save-btn" style="padding: 8px 20px; font-size: 14px; background: #00B4A0; color: white; border: none; border-radius: 4px;">Save</button>
+</div>
+      <p style="text-align: center;"><a href="/formations/" style="color: #00B4A0;">View saved formations</a></p>
+<p id="save-status" style="color: white; text-align: center;"></p>
     </div>
+
+<script>
+
+window.addEventListener('DOMContentLoaded', async function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const loadId = urlParams.get('load');
+    if (!loadId) return;
+
+    try {
+        const response = await fetch(`/formations/${loadId}/load/`);
+        const data = await response.json();
+
+        if (data.players) {
+            players = [];
+            playersLayer.innerHTML = '';
+            data.players.forEach(p => {
+                const player = { number: p.number, x: p.x, y: p.y };
+                players.push(player);
+                drawPlayer(player);
+            });
+            updateCount();
+            formationNameInput.value = data.name;
+        }
+    } catch (err) {
+        console.error('Failed to load formation', err);
+    }
+});
+  
+    const svg = document.getElementById('pitch-svg');
+    const playersLayer = document.getElementById('players-layer');
+    const playerCountEl = document.getElementById('player-count');
+    const resetBtn = document.getElementById('reset-btn');
+
+    let players = []; // { number, x, y, el }
+    let draggingPlayer = null;
+
+    function getSvgPoint(e) {
+        const point = svg.createSVGPoint();
+        const touch = e.touches ? e.touches[0] : e;
+        point.x = touch.clientX;
+        point.y = touch.clientY;
+        return point.matrixTransform(svg.getScreenCTM().inverse());
+    }
+
+    function drawPlayer(player) {
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.style.cursor = 'grab';
+        g.style.touchAction = 'none';
+
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('r', 22);
+        circle.setAttribute('fill', '#00B4A0');
+        circle.setAttribute('stroke', 'white');
+        circle.setAttribute('stroke-width', 2);
+
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('dominant-baseline', 'central');
+        text.setAttribute('fill', 'white');
+        text.setAttribute('font-size', '18');
+        text.setAttribute('font-weight', 'bold');
+        text.textContent = player.number;
+
+        g.appendChild(circle);
+        g.appendChild(text);
+        playersLayer.appendChild(g);
+
+        player.el = g;
+        updatePlayerPosition(player);
+
+        // Start dragging this specific player
+        function startDrag(e) {
+            e.stopPropagation();
+            draggingPlayer = player;
+            g.style.cursor = 'grabbing';
+        }
+        g.addEventListener('mousedown', startDrag);
+        g.addEventListener('touchstart', startDrag, { passive: false });
+    }
+
+    function updatePlayerPosition(player) {
+        const [circle, text] = player.el.children;
+        circle.setAttribute('cx', player.x);
+        circle.setAttribute('cy', player.y);
+        text.setAttribute('x', player.x);
+        text.setAttribute('y', player.y);
+    }
+
+    function clampToPitch(point) {
+        // Keep markers within the pitch boundary (10 to 690 x, 10 to 990 y)
+        point.x = Math.max(20, Math.min(680, point.x));
+        point.y = Math.max(20, Math.min(980, point.y));
+        return point;
+    }
+
+    // Placing a new player (tap on empty pitch space)
+    svg.addEventListener('mousedown', handlePitchTap);
+    svg.addEventListener('touchstart', handlePitchTap, { passive: false });
+
+    function handlePitchTap(e) {
+        if (e.target !== svg && e.target.closest('#players-layer') === null) return;
+        if (e.target.closest('g') && e.target.closest('#players-layer')) return; // clicked a player, not empty pitch
+        if (players.length >= 11) return;
+
+        e.preventDefault();
+        const point = clampToPitch(getSvgPoint(e));
+        const player = { number: players.length + 1, x: point.x, y: point.y };
+        players.push(player);
+        drawPlayer(player);
+        updateCount();
+    }
+
+    // Handle dragging (mouse + touch)
+    function handleMove(e) {
+        if (!draggingPlayer) return;
+        e.preventDefault();
+        const point = clampToPitch(getSvgPoint(e));
+        draggingPlayer.x = point.x;
+        draggingPlayer.y = point.y;
+        updatePlayerPosition(draggingPlayer);
+    }
+
+    function handleEnd() {
+        if (draggingPlayer && draggingPlayer.el) {
+            draggingPlayer.el.style.cursor = 'grab';
+        }
+        draggingPlayer = null;
+    }
+
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('touchmove', handleMove, { passive: false });
+    document.addEventListener('mouseup', handleEnd);
+    document.addEventListener('touchend', handleEnd);
+
+    function updateCount() {
+        playerCountEl.textContent = `Players placed: ${players.length} / 11`;
+    }
+
+    resetBtn.addEventListener('click', function() {
+        players = [];
+        playersLayer.innerHTML = '';
+        updateCount();
+    });
+
+
+
+  const saveBtn = document.getElementById('save-btn');
+const formationNameInput = document.getElementById('formation-name');
+const saveStatus = document.getElementById('save-status');
+
+saveBtn.addEventListener('click', async function() {
+    const name = formationNameInput.value.trim();
+
+    if (!name) {
+        saveStatus.textContent = 'Please enter a formation name.';
+        saveStatus.style.color = '#ff6b6b';
+        return;
+    }
+    if (players.length === 0) {
+        saveStatus.textContent = 'Place at least one player first.';
+        saveStatus.style.color = '#ff6b6b';
+        return;
+    }
+
+    const payload = {
+        name: name,
+        players: players.map(p => ({ number: p.number, x: p.x, y: p.y }))
+    };
+
+    try {
+        const response = await fetch('/save/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+
+        if (result.success) {
+            saveStatus.textContent = `Saved "${name}" successfully!`;
+            saveStatus.style.color = '#00B4A0';
+            formationNameInput.value = '';
+        } else {
+            saveStatus.textContent = result.error || 'Something went wrong.';
+            saveStatus.style.color = '#ff6b6b';
+        }
+    } catch (err) {
+        saveStatus.textContent = 'Network error — could not save.';
+        saveStatus.style.color = '#ff6b6b';
+    }
+});
+
+
+
+          </script>
+
 </body>
 </html>
