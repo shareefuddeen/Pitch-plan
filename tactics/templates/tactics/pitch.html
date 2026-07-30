@@ -38,8 +38,19 @@
 </head>
 <body>
   <h1 style="color: white; text-align: center; font-family: sans-serif; margin-bottom: 10px;">PitchPlan</h1>
+  <div style="text-align: center; margin-bottom: 10px;">
+    <button id="team-home-btn" style="padding: 8px 16px; font-size: 14px; background: #00B4A0; color: white; border: none; border-radius: 4px 0 0 4px;">Home</button>
+    <button id="team-away-btn" style="padding: 8px 16px; font-size: 14px; background: #444; color: white; border: none; border-radius: 0 4px 4px 0;">Away</button>
+  </div>
     <div class="pitch-container">
         <svg id="pitch-svg" viewBox="0 0 700 1000" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: auto; background: #2e7d32; border: 3px solid white;">
+<defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 9 3, 0 6" fill="#FFD60A" />
+    </marker>
+</defs>
+          
+
             <!-- Outer boundary -->
             <rect x="10" y="10" width="680" height="980" fill="none" stroke="white" stroke-width="3"/>
             <!-- Halfway line -->
@@ -73,7 +84,35 @@
             <g id="players-layer"></g>
         </svg>
 
-        <p id="player-count">Players placed: 0 / 11</p>
+        <p id="player-count">Home: 0 / 11 &nbsp;|&nbsp; Away: 0 / 11</p>
+      <button id="export-btn" style="padding: 8px 20px; font-size: 14px; background: #444; color: white; border: none; border-radius: 4px;">⬇ Export as Image</button>
+<div style="text-align: center; margin-bottom: 10px;">
+    <input type="file" id="image-upload" accept="image/*" style="display: none;">
+    
+</div>
+<div style="text-align: center; margin-bottom: 10px;">
+    <select id="preset-select" style="padding: 8px; font-size: 14px; border-radius: 4px; border: none;">
+        <option value="">Choose formation…</option>
+        <option value="433">4-3-3</option>
+        <option value="442">4-4-2</option>
+        <option value="352">3-5-2</option>
+        <option value="4231">4-2-3-1</option>
+    </select>
+    <button id="apply-preset-btn" style="padding: 8px 16px; font-size: 14px; background: #00B4A0; color: white; border: none; border-radius: 4px;">Apply</button>
+</div>
+
+      <div style="text-align: center; margin-bottom: 10px;">
+    <button id="arrow-mode-btn" style="padding: 8px 16px; font-size: 14px; background: #444; color: white; border: none; border-radius: 4px;">Draw Arrows: Off</button>
+    <button id="clear-arrows-btn" style="padding: 8px 16px; font-size: 14px; background: #444; color: white; border: none; border-radius: 4px;">Clear Arrows</button>
+      </div>
+      <button id="add-player-btn" style="padding: 8px 16px; font-size: 14px; background: #FFD60A; color: #1a1a1a; border: none; border-radius: 4px;">Add Player: On</button>
+      <button id="add-ball-btn" style="padding: 8px 16px; font-size: 14px; background: #444; color: white; border: none; border-radius: 4px;">⚽ Add Ball</button>
+      <div style="text-align: center; margin-bottom: 10px;">
+    <button id="lock-btn" style="padding: 8px 16px; font-size: 14px; background: #444; color: white; border: none; border-radius: 4px;">Lock Players: Off</button>
+    <button id="play-btn" style="padding: 8px 16px; font-size: 14px; background: #444; color: white; border: none; border-radius: 4px;">▶ Play</button>
+    <button id="reset-positions-btn" style="padding: 8px 16px; font-size: 14px; background: #444; color: white; border: none; border-radius: 4px;">Reset Positions</button>
+      </div>
+
         <button id="reset-btn">Reset</button>
       <div style="text-align: center; margin-top: 15px;">
     <input type="text" id="formation-name" placeholder="Formation name" style="padding: 8px; font-size: 14px; border-radius: 4px; border: none; width: 200px;">
@@ -85,150 +124,162 @@
 
 <script>
 
-window.addEventListener('DOMContentLoaded', async function() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const loadId = urlParams.get('load');
-    if (!loadId) return;
+const svg = document.getElementById('pitch-svg');
+const playersLayer = document.getElementById('players-layer');
+const playerCountEl = document.getElementById('player-count');
+const resetBtn = document.getElementById('reset-btn');
+const teamHomeBtn = document.getElementById('team-home-btn');
+const teamAwayBtn = document.getElementById('team-away-btn');
 
-    try {
-        const response = await fetch(`/formations/${loadId}/load/`);
-        const data = await response.json();
+const TEAM_COLORS = { home: '#00B4A0', away: '#E63946' };
+let currentTeam = 'home';
+let players = []; // { number, x, y, team, el }
+let draggingPlayer = null;
+let draggingBall = false;
+let ball = null; // { x, y, el }
+let arrows = []; // { startX, startY, endX, endY, el }
+let drawingArrow = null; // { startX, startY, el }
+let arrowMode = false;
+let playersLocked = false;
+let addPlayerMode = true;
+let originalPositions = null;
 
-        if (data.players) {
-            players = [];
-            playersLayer.innerHTML = '';
-            data.players.forEach(p => {
-                const player = { number: p.number, x: p.x, y: p.y };
-                players.push(player);
-                drawPlayer(player);
-            });
-            updateCount();
-            formationNameInput.value = data.name;
-        }
-    } catch (err) {
-        console.error('Failed to load formation', err);
+teamHomeBtn.addEventListener('click', () => setTeam('home'));
+teamAwayBtn.addEventListener('click', () => setTeam('away'));
+
+function setTeam(team) {
+    currentTeam = team;
+    teamHomeBtn.style.background = team === 'home' ? '#00B4A0' : '#444';
+    teamAwayBtn.style.background = team === 'away' ? '#E63946' : '#444';
+}
+setTeam('home');
+
+function getSvgPoint(e) {
+    const point = svg.createSVGPoint();
+    const touch = e.touches ? e.touches[0] : e;
+    point.x = touch.clientX;
+    point.y = touch.clientY;
+    return point.matrixTransform(svg.getScreenCTM().inverse());
+}
+
+function drawPlayer(player) {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.style.cursor = 'grab';
+    g.style.touchAction = 'none';
+
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('r', 22);
+    circle.setAttribute('fill', TEAM_COLORS[player.team]);
+    circle.setAttribute('stroke', 'white');
+    circle.setAttribute('stroke-width', 2);
+
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('dominant-baseline', 'central');
+    text.setAttribute('fill', 'white');
+    text.setAttribute('font-size', '18');
+    text.setAttribute('font-weight', 'bold');
+    text.textContent = player.number;
+
+    g.appendChild(circle);
+    g.appendChild(text);
+    playersLayer.appendChild(g);
+
+    player.el = g;
+    updatePlayerPosition(player);
+
+    function startDrag(e) {
+        if (arrowMode) return;
+        if (playersLocked) return;
+        e.stopPropagation();
+        draggingPlayer = player;
+        g.style.cursor = 'grabbing';
     }
+
+    g.addEventListener('mousedown', startDrag);
+    g.addEventListener('touchstart', startDrag, { passive: false });
+}
+
+function updatePlayerPosition(player) {
+    const [circle, text] = player.el.children;
+    circle.setAttribute('cx', player.x);
+    circle.setAttribute('cy', player.y);
+    text.setAttribute('x', player.x);
+    text.setAttribute('y', player.y);
+}
+
+function clampToPitch(point) {
+    point.x = Math.max(20, Math.min(680, point.x));
+    point.y = Math.max(20, Math.min(980, point.y));
+    return point;
+}
+
+function teamCount(team) {
+    return players.filter(p => p.team === team).length;
+}
+
+svg.addEventListener('mousedown', handlePitchTap);
+svg.addEventListener('touchstart', handlePitchTap, { passive: false });
+
+function handlePitchTap(e) {
+    if (!addPlayerMode) return;
+    if (arrowMode) return;
+    if (e.target !== svg && e.target.closest('#players-layer') === null) return;
+    if (e.target.closest('g') && e.target.closest('#players-layer')) return;
+    if (teamCount(currentTeam) >= 11) return;
+
+    e.preventDefault();
+    const point = clampToPitch(getSvgPoint(e));
+    const number = teamCount(currentTeam) + 1;
+    const player = { number, x: point.x, y: point.y, team: currentTeam };
+    players.push(player);
+    drawPlayer(player);
+    updateCount();
+}
+
+function handleMove(e) {
+    if (draggingBall && ball) {
+        e.preventDefault();
+        const point = clampToPitch(getSvgPoint(e));
+        ball.x = point.x;
+        ball.y = point.y;
+        updateBallPosition();
+        return;
+    }
+    if (!draggingPlayer) return;
+    e.preventDefault();
+    const point = clampToPitch(getSvgPoint(e));
+    draggingPlayer.x = point.x;
+    draggingPlayer.y = point.y;
+    updatePlayerPosition(draggingPlayer);
+}
+
+function handleEnd() {
+    draggingBall = false;
+    if (draggingPlayer && draggingPlayer.el) {
+        draggingPlayer.el.style.cursor = 'grab';
+    }
+    draggingPlayer = null;
+}
+
+document.addEventListener('mousemove', handleMove);
+document.addEventListener('touchmove', handleMove, { passive: false });
+document.addEventListener('mouseup', handleEnd);
+document.addEventListener('touchend', handleEnd);
+
+function updateCount() {
+    playerCountEl.textContent = `Home: ${teamCount('home')} / 11  |  Away: ${teamCount('away')} / 11`;
+}
+
+resetBtn.addEventListener('click', function() {
+    players = [];
+    ball = null;
+    arrows = [];
+    playersLayer.innerHTML = '';
+    updateCount();
 });
   
-    const svg = document.getElementById('pitch-svg');
-    const playersLayer = document.getElementById('players-layer');
-    const playerCountEl = document.getElementById('player-count');
-    const resetBtn = document.getElementById('reset-btn');
-
-    let players = []; // { number, x, y, el }
-    let draggingPlayer = null;
-
-    function getSvgPoint(e) {
-        const point = svg.createSVGPoint();
-        const touch = e.touches ? e.touches[0] : e;
-        point.x = touch.clientX;
-        point.y = touch.clientY;
-        return point.matrixTransform(svg.getScreenCTM().inverse());
-    }
-
-    function drawPlayer(player) {
-        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        g.style.cursor = 'grab';
-        g.style.touchAction = 'none';
-
-        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle.setAttribute('r', 22);
-        circle.setAttribute('fill', '#00B4A0');
-        circle.setAttribute('stroke', 'white');
-        circle.setAttribute('stroke-width', 2);
-
-        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        text.setAttribute('text-anchor', 'middle');
-        text.setAttribute('dominant-baseline', 'central');
-        text.setAttribute('fill', 'white');
-        text.setAttribute('font-size', '18');
-        text.setAttribute('font-weight', 'bold');
-        text.textContent = player.number;
-
-        g.appendChild(circle);
-        g.appendChild(text);
-        playersLayer.appendChild(g);
-
-        player.el = g;
-        updatePlayerPosition(player);
-
-        // Start dragging this specific player
-        function startDrag(e) {
-            e.stopPropagation();
-            draggingPlayer = player;
-            g.style.cursor = 'grabbing';
-        }
-        g.addEventListener('mousedown', startDrag);
-        g.addEventListener('touchstart', startDrag, { passive: false });
-    }
-
-    function updatePlayerPosition(player) {
-        const [circle, text] = player.el.children;
-        circle.setAttribute('cx', player.x);
-        circle.setAttribute('cy', player.y);
-        text.setAttribute('x', player.x);
-        text.setAttribute('y', player.y);
-    }
-
-    function clampToPitch(point) {
-        // Keep markers within the pitch boundary (10 to 690 x, 10 to 990 y)
-        point.x = Math.max(20, Math.min(680, point.x));
-        point.y = Math.max(20, Math.min(980, point.y));
-        return point;
-    }
-
-    // Placing a new player (tap on empty pitch space)
-    svg.addEventListener('mousedown', handlePitchTap);
-    svg.addEventListener('touchstart', handlePitchTap, { passive: false });
-
-    function handlePitchTap(e) {
-        if (e.target !== svg && e.target.closest('#players-layer') === null) return;
-        if (e.target.closest('g') && e.target.closest('#players-layer')) return; // clicked a player, not empty pitch
-        if (players.length >= 11) return;
-
-        e.preventDefault();
-        const point = clampToPitch(getSvgPoint(e));
-        const player = { number: players.length + 1, x: point.x, y: point.y };
-        players.push(player);
-        drawPlayer(player);
-        updateCount();
-    }
-
-    // Handle dragging (mouse + touch)
-    function handleMove(e) {
-        if (!draggingPlayer) return;
-        e.preventDefault();
-        const point = clampToPitch(getSvgPoint(e));
-        draggingPlayer.x = point.x;
-        draggingPlayer.y = point.y;
-        updatePlayerPosition(draggingPlayer);
-    }
-
-    function handleEnd() {
-        if (draggingPlayer && draggingPlayer.el) {
-            draggingPlayer.el.style.cursor = 'grab';
-        }
-        draggingPlayer = null;
-    }
-
-    document.addEventListener('mousemove', handleMove);
-    document.addEventListener('touchmove', handleMove, { passive: false });
-    document.addEventListener('mouseup', handleEnd);
-    document.addEventListener('touchend', handleEnd);
-
-    function updateCount() {
-        playerCountEl.textContent = `Players placed: ${players.length} / 11`;
-    }
-
-    resetBtn.addEventListener('click', function() {
-        players = [];
-        playersLayer.innerHTML = '';
-        updateCount();
-    });
-
-
-
-  const saveBtn = document.getElementById('save-btn');
+const saveBtn = document.getElementById('save-btn');
 const formationNameInput = document.getElementById('formation-name');
 const saveStatus = document.getElementById('save-status');
 
@@ -248,7 +299,9 @@ saveBtn.addEventListener('click', async function() {
 
     const payload = {
         name: name,
-        players: players.map(p => ({ number: p.number, x: p.x, y: p.y }))
+        players: players.map(p => ({ number: p.number, x: p.x, y: p.y, team: p.team })),
+        arrows: arrows.map(a => ({ startX: a.startX, startY: a.startY, endX: a.endX, endY: a.endY })),
+        ball: ball ? { x: ball.x, y: ball.y } : null
     };
 
     try {
@@ -273,9 +326,412 @@ saveBtn.addEventListener('click', async function() {
     }
 });
 
+window.addEventListener('DOMContentLoaded', async function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const loadId = urlParams.get('load');
+    if (!loadId) return;
+    try {
+        const response = await fetch(`/formations/${loadId}/load/`);
+        const data = await response.json();
+        if (data.players) {
+            players = [];
+            playersLayer.innerHTML = '';
+            data.players.forEach(p => {
+                const player = { number: p.number, x: p.x, y: p.y, team: p.team || 'home' };
+                players.push(player);
+                drawPlayer(player);
+            });
+            updateCount();
+            formationNameInput.value = data.name;
+        }
+        if (data.arrows) {
+            arrows.forEach(a => a.el && a.el.remove());
+            arrows = [];
+            data.arrows.forEach(a => {
+                arrows.push(a);
+                drawArrow(a);
+            });
+        }
+        if (data.ball) {
+            if (ball) { ball.el.remove(); ball = null; }
+            drawBall(data.ball.x, data.ball.y);
+        }
+    } catch (err) {
+        console.error('Failed to load formation', err);
+    }
+});
+
+// Preset positions defined for the "Home" team (bottom half, attacking upward).
+// Away team gets these mirrored across the halfway line automatically.
+const FORMATION_PRESETS = {
+    '433': [
+        { x: 350, y: 950 }, // GK
+        { x: 120, y: 820 }, { x: 280, y: 850 }, { x: 420, y: 850 }, { x: 580, y: 820 }, // DF
+        { x: 200, y: 680 }, { x: 350, y: 700 }, { x: 500, y: 680 }, // MF
+        { x: 180, y: 560 }, { x: 350, y: 580 }, { x: 520, y: 560 } // FW
+    ],
+    '442': [
+        { x: 350, y: 950 },
+        { x: 120, y: 820 }, { x: 280, y: 850 }, { x: 420, y: 850 }, { x: 580, y: 820 },
+        { x: 120, y: 650 }, { x: 300, y: 680 }, { x: 400, y: 680 }, { x: 580, y: 650 },
+        { x: 280, y: 560 }, { x: 420, y: 560 }
+    ],
+    '352': [
+        { x: 350, y: 950 },
+        { x: 220, y: 830 }, { x: 350, y: 850 }, { x: 480, y: 830 },
+        { x: 120, y: 650 }, { x: 260, y: 700 }, { x: 350, y: 680 }, { x: 440, y: 700 }, { x: 580, y: 650 },
+        { x: 280, y: 560 }, { x: 420, y: 560 }
+    ],
+    '4231': [
+        { x: 350, y: 950 },
+        { x: 120, y: 820 }, { x: 280, y: 850 }, { x: 420, y: 850 }, { x: 580, y: 820 },
+        { x: 270, y: 700 }, { x: 430, y: 700 },
+        { x: 180, y: 600 }, { x: 350, y: 620 }, { x: 520, y: 600 },
+        { x: 350, y: 540 }
+    ]
+};
+
+const presetSelect = document.getElementById('preset-select');
+const applyPresetBtn = document.getElementById('apply-preset-btn');
+
+applyPresetBtn.addEventListener('click', function() {
+    const key = presetSelect.value;
+    if (!key) return;
+
+    const preset = FORMATION_PRESETS[key];
+
+    players = players.filter(p => {
+        if (p.team === currentTeam) {
+            p.el.remove();
+            return false;
+        }
+        return true;
+    });
+
+    preset.forEach((pos, i) => {
+        const y = currentTeam === 'away' ? 1000 - pos.y : pos.y;
+        const player = { number: i + 1, x: pos.x, y: y, team: currentTeam };
+        players.push(player);
+        drawPlayer(player);
+    });
+
+    updateCount();
+});
+
+const arrowModeBtn = document.getElementById('arrow-mode-btn');
+const clearArrowsBtn = document.getElementById('clear-arrows-btn');
+
+arrowModeBtn.addEventListener('click', function() {
+    arrowMode = !arrowMode;
+    arrowModeBtn.textContent = `Draw Arrows: ${arrowMode ? 'On' : 'Off'}`;
+    arrowModeBtn.style.background = arrowMode ? '#FFD60A' : '#444';
+    arrowModeBtn.style.color = arrowMode ? '#1a1a1a' : 'white';
+});
+
+clearArrowsBtn.addEventListener('click', function() {
+    arrows.forEach(a => a.el.remove());
+    arrows = [];
+});
+
+svg.addEventListener('mousedown', handleArrowStart);
+svg.addEventListener('touchstart', handleArrowStart, { passive: false });
+
+function handleArrowStart(e) {
+    if (!arrowMode) return;
+
+    e.preventDefault();
+    const point = getSvgPoint(e);
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', point.x);
+    line.setAttribute('y1', point.y);
+    line.setAttribute('x2', point.x);
+    line.setAttribute('y2', point.y);
+    line.setAttribute('stroke', '#FFD60A');
+    line.setAttribute('stroke-width', 3);
+    line.setAttribute('marker-end', 'url(#arrowhead)');
+    playersLayer.parentNode.insertBefore(line, playersLayer);
+
+    drawingArrow = { startX: point.x, startY: point.y, el: line };
+}
+
+function handleArrowMove(e) {
+    if (!drawingArrow) return;
+    e.preventDefault();
+    const point = clampToPitch(getSvgPoint(e));
+    drawingArrow.el.setAttribute('x2', point.x);
+    drawingArrow.el.setAttribute('y2', point.y);
+}
+
+function handleArrowEnd(e) {
+    if (!drawingArrow) return;
+    const endX = parseFloat(drawingArrow.el.getAttribute('x2'));
+    const endY = parseFloat(drawingArrow.el.getAttribute('y2'));
+
+    arrows.push({
+        startX: drawingArrow.startX,
+        startY: drawingArrow.startY,
+        endX: endX,
+        endY: endY,
+        el: drawingArrow.el
+    });
+    drawingArrow = null;
+}
+
+document.addEventListener('mousemove', handleArrowMove);
+document.addEventListener('touchmove', handleArrowMove, { passive: false });
+document.addEventListener('mouseup', handleArrowEnd);
+document.addEventListener('touchend', handleArrowEnd);
+
+function drawArrow(a) {
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', a.startX);
+    line.setAttribute('y1', a.startY);
+    line.setAttribute('x2', a.endX);
+    line.setAttribute('y2', a.endY);
+    line.setAttribute('stroke', '#FFD60A');
+    line.setAttribute('stroke-width', 3);
+    line.setAttribute('marker-end', 'url(#arrowhead)');
+    playersLayer.parentNode.insertBefore(line, playersLayer);
+    a.el = line;
+}
+
+// --- Lock players ---
+const lockBtn = document.getElementById('lock-btn');
+
+lockBtn.addEventListener('click', function() {
+    playersLocked = !playersLocked;
+    lockBtn.textContent = `Lock Players: ${playersLocked ? 'On' : 'Off'}`;
+    lockBtn.style.background = playersLocked ? '#FFD60A' : '#444';
+    lockBtn.style.color = playersLocked ? '#1a1a1a' : 'white';
+});
+
+// --- Animate along arrows ---
+const playBtn = document.getElementById('play-btn');
+const resetPositionsBtn = document.getElementById('reset-positions-btn');
+
+function distance(x1, y1, x2, y2) {
+    return Math.hypot(x2 - x1, y2 - y1);
+}
+
+function easeInOutQuad(t) {
+    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+}
+
+function animatePlayer(player, fromX, fromY, toX, toY, duration) {
+    const start = performance.now();
+
+    function step(now) {
+        const elapsed = now - start;
+        const t = Math.min(elapsed / duration, 1);
+        const eased = easeInOutQuad(t);
+
+        player.x = fromX + (toX - fromX) * eased;
+        player.y = fromY + (toY - fromY) * eased;
+        updatePlayerPosition(player);
+
+        if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+}
+
+function animateBall(fromX, fromY, toX, toY, duration) {
+    const start = performance.now();
+    function step(now) {
+        const elapsed = now - start;
+        const t = Math.min(elapsed / duration, 1);
+        const eased = easeInOutQuad(t);
+        ball.x = fromX + (toX - fromX) * eased;
+        ball.y = fromY + (toY - fromY) * eased;
+        updateBallPosition();
+        if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+}
+
+playBtn.addEventListener('click', function() {
+    if (arrows.length === 0) return;
+
+    originalPositions = players.map(p => ({ player: p, x: p.x, y: p.y }));
+    window.originalBallPos = ball ? { x: ball.x, y: ball.y } : null;
+
+    const DURATION = 1200;
+    const MATCH_THRESHOLD = 45;
+
+    arrows.forEach(arrow => {
+        let closestTarget = null;
+        let closestDist = MATCH_THRESHOLD;
+        let isBall = false;
+
+        players.forEach(p => {
+            const d = distance(p.x, p.y, arrow.startX, arrow.startY);
+            if (d < closestDist) {
+                closestDist = d;
+                closestTarget = p;
+                isBall = false;
+            }
+        });
+
+        if (ball) {
+            const d = distance(ball.x, ball.y, arrow.startX, arrow.startY);
+            if (d < closestDist) {
+                closestDist = d;
+                closestTarget = ball;
+                isBall = true;
+            }
+        }
+
+        if (closestTarget) {
+            if (isBall) {
+                animateBall(closestTarget.x, closestTarget.y, arrow.endX, arrow.endY, DURATION);
+            } else {
+                animatePlayer(closestTarget, closestTarget.x, closestTarget.y, arrow.endX, arrow.endY, DURATION);
+            }
+        }
+    });
+
+    setTimeout(function() {
+        arrows.forEach(a => a.el && a.el.remove());
+        arrows = [];
+    }, DURATION);
+});
+
+resetPositionsBtn.addEventListener('click', function() {
+    if (originalPositions) {
+        originalPositions.forEach(({ player, x, y }) => {
+            player.x = x;
+            player.y = y;
+            updatePlayerPosition(player);
+        });
+    }
+    if (window.originalBallPos && ball) {
+        ball.x = window.originalBallPos.x;
+        ball.y = window.originalBallPos.y;
+        updateBallPosition();
+    }
+});
+
+const addPlayerBtn = document.getElementById('add-player-btn');
+
+addPlayerBtn.addEventListener('click', function() {
+    addPlayerMode = !addPlayerMode;
+    addPlayerBtn.textContent = `Add Player: ${addPlayerMode ? 'On' : 'Off'}`;
+    addPlayerBtn.style.background = addPlayerMode ? '#FFD60A' : '#444';
+    addPlayerBtn.style.color = addPlayerMode ? '#1a1a1a' : 'white';
+});
+
+const addBallBtn = document.getElementById('add-ball-btn');
+
+addBallBtn.addEventListener('click', function() {
+    if (ball) return;
+    drawBall(350, 500);
+});
 
 
-          </script>
+  function drawBall(x, y) {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.style.cursor = 'grab';
+    g.style.touchAction = 'none';
+
+    const RADIUS = 16; // bumped up from 12
+
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('r', RADIUS);
+    circle.setAttribute('fill', 'white');
+    circle.setAttribute('stroke', '#1a1a1a');
+    circle.setAttribute('stroke-width', 1.5);
+    g.appendChild(circle);
+
+    // Center pentagon
+    const centerPentagon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    const centerPoints = pentagonPoints(0, 0, RADIUS * 0.45);
+    centerPentagon.setAttribute('points', centerPoints);
+    centerPentagon.setAttribute('fill', '#1a1a1a');
+    g.appendChild(centerPentagon);
+
+    // Surrounding pentagon accents (partial, just hints around the edge)
+    const angles = [90, 162, 234, 306, 18]; // 5 points around, offset for classic look
+    angles.forEach(angle => {
+        const rad = (angle * Math.PI) / 180;
+        const px = Math.cos(rad) * RADIUS * 0.75;
+        const py = Math.sin(rad) * RADIUS * 0.75;
+        const dot = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        dot.setAttribute('points', pentagonPoints(px, py, RADIUS * 0.22));
+        dot.setAttribute('fill', '#1a1a1a');
+        g.appendChild(dot);
+    });
+
+    playersLayer.appendChild(g);
+
+    ball = { x, y, el: g, radius: RADIUS };
+    updateBallPosition();
+
+    function startBallDrag(e) {
+        if (arrowMode || playersLocked) return;
+        e.stopPropagation();
+        draggingBall = true;
+    }
+    g.addEventListener('mousedown', startBallDrag);
+    g.addEventListener('touchstart', startBallDrag, { passive: false });
+}
+
+function pentagonPoints(cx, cy, r) {
+    const points = [];
+    for (let i = 0; i < 5; i++) {
+        const angle = (i * 72 - 90) * (Math.PI / 180); // start pointing up
+        const x = cx + r * Math.cos(angle);
+        const y = cy + r * Math.sin(angle);
+        points.push(`${x},${y}`);
+    }
+    return points.join(' ');
+    }
+
+  function updateBallPosition() {
+    if (!ball) return;
+    ball.el.setAttribute('transform', `translate(${ball.x}, ${ball.y})`);
+  }
+
+  const exportBtn = document.getElementById('export-btn');
+
+exportBtn.addEventListener('click', function() {
+    // Clone the SVG so we don't disturb the live one
+    const svgClone = svg.cloneNode(true);
+    svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+
+    const svgData = new XMLSerializer().serializeToString(svgClone);
+    const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+
+    const img = new Image();
+    img.onload = function() {
+        const canvas = document.createElement('canvas');
+        // Render at 2x for a sharper export
+        const scale = 2;
+        canvas.width = 700 * scale;
+        canvas.height = 1000 * scale;
+
+        const ctx = canvas.getContext('2d');
+        ctx.scale(scale, scale);
+        ctx.drawImage(img, 0, 0, 700, 1000);
+
+        URL.revokeObjectURL(url);
+
+        canvas.toBlob(function(blob) {
+            const link = document.createElement('a');
+            const filename = (formationNameInput.value.trim() || 'pitchplan-formation') + '.png';
+            link.download = filename;
+            link.href = URL.createObjectURL(blob);
+            link.click();
+            URL.revokeObjectURL(link.href);
+        }, 'image/png');
+    };
+    img.src = url;
+});
+
+
+        
+
+
+</script>
 
 </body>
 </html>

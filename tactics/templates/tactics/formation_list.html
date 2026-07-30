@@ -17,17 +17,26 @@
             background: #0B1A2E;
             padding: 15px;
             margin: 10px auto;
-            max-width: 400px;
+            max-width: 450px;
             border-radius: 6px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 10px;
         }
-        .formation-item a {
+        .formation-name {
+            flex: 1;
+        }
+        .formation-item a, .formation-item button {
             color: #00B4A0;
             text-decoration: none;
             font-weight: bold;
+            background: none;
+            border: none;
+            font-size: 14px;
+            cursor: pointer;
         }
+        .delete-btn { color: #E63946 !important; }
         .back-link {
             display: block;
             text-align: center;
@@ -39,13 +48,60 @@
 <body>
     <h1>Saved Formations</h1>
     {% for formation in formations %}
-        <div class="formation-item">
-            <span>{{ formation.name }}</span>
+        <div class="formation-item" data-id="{{ formation.id }}">
+            <span class="formation-name">{{ formation.name }}</span>
             <a href="/?load={{ formation.id }}">Load</a>
+            <button class="rename-btn">Rename</button>
+            <button class="delete-btn">Delete</button>
         </div>
     {% empty %}
         <p style="text-align: center;">No formations saved yet.</p>
     {% endfor %}
     <a href="/" class="back-link">&larr; Back to pitch</a>
+
+    <script>
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const item = btn.closest('.formation-item');
+                const id = item.dataset.id;
+                const name = item.querySelector('.formation-name').textContent;
+
+                if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
+
+                const response = await fetch(`/formations/${id}/delete/`, { method: 'POST' });
+                const result = await response.json();
+
+                if (result.success) {
+                    item.remove();
+                } else {
+                    alert(result.error || 'Failed to delete.');
+                }
+            });
+        });
+
+        document.querySelectorAll('.rename-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const item = btn.closest('.formation-item');
+                const id = item.dataset.id;
+                const nameEl = item.querySelector('.formation-name');
+                const newName = prompt('New name:', nameEl.textContent);
+
+                if (!newName || !newName.trim()) return;
+
+                const response = await fetch(`/formations/${id}/rename/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: newName.trim() })
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    nameEl.textContent = newName.trim();
+                } else {
+                    alert(result.error || 'Failed to rename.');
+                }
+            });
+        });
+    </script>
 </body>
 </html>
